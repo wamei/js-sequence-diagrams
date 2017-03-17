@@ -16,10 +16,16 @@ if (typeof Snap != 'undefined') {
   };
 
   var RECT = {
-        'stroke': '#000000',
-        'stroke-width': 2,
-        'fill': '#fff'
-      };
+    'stroke': '#000000',
+    'stroke-width': 2,
+    'fill': '#fff'
+  };
+
+  var EXECUTION_RECT = {
+    'stroke': '#000000',
+    'stroke-width': 2,
+    'fill': '#e6e6e6' // Color taken from the UML examples
+  };
 
   var LOADED_FONTS = {};
 
@@ -125,6 +131,15 @@ if (typeof Snap != 'undefined') {
       arrow = this.paper_.path('M 9.6,8 1.92,16 0,13.7 5.76,8 0,2.286 1.92,0 9.6,8 z');
       a[ARROWTYPE.OPEN] = arrow.marker(0, 0, 9.6, 16, 9.6, 8)
        .attr({markerWidth: '4', id: 'markerArrowOpen'});
+
+      var b = this.leftArrowMarkers_ = {};
+      arrow = this.paper_.path('M 0 2.5 L 5 5 L 5 0 z');
+      b[Diagram.LEFTARROWTYPE.FILLED] = arrow.marker(0, 0, 5, 5, 0, 2.5)
+       .attr({id: 'markerLeftArrowBlock'});
+
+      arrow = this.paper_.path('M 0,8 7.68,16 9.6,13.7 3.84,8 9.6,2.286 7.68,0 0,8 z');
+      b[Diagram.LEFTARROWTYPE.OPEN] = arrow.marker(0, 0, 9.6, 16, 0, 8)
+       .attr({markerWidth: '4', id: 'markerLeftArrowOpen'});
     },
 
     layout: function() {
@@ -155,9 +170,15 @@ if (typeof Snap != 'undefined') {
     },
 
     // Finishes the group, and returns the <group> element
-    finishGroup: function() {
+    finishGroup: function(groupName, lineno) {
       var g = this.paper_.group.apply(this.paper_, this._stack);
       this.beginGroup(); // Reset the group
+      if (groupName) {
+        g.addClass(groupName);
+      }
+      if (lineno !== void 0) {
+        g.attr({'data-lineno': lineno + 1});
+      }
       return g;
     },
 
@@ -178,13 +199,16 @@ if (typeof Snap != 'undefined') {
       return t;
     },
 
-    drawLine: function(x1, y1, x2, y2, linetype, arrowhead) {
+    drawLine: function(x1, y1, x2, y2, linetype, arrowhead, leftarrowhead) {
       var line = this.paper_.line(x1, y1, x2, y2).attr(LINE);
       if (linetype !== undefined) {
         line.attr('strokeDasharray', this.lineTypes_[linetype]);
       }
       if (arrowhead !== undefined) {
         line.attr('markerEnd', this.arrowMarkers_[arrowhead]);
+      }
+      if (leftarrowhead !== undefined && leftarrowhead != Diagram.LEFTARROWTYPE.NONE) {
+        line.attr('markerStart', this.leftArrowMarkers_[leftarrowhead]);
       }
       return this.pushToStack(line);
     },
@@ -222,31 +246,31 @@ if (typeof Snap != 'undefined') {
     drawTitle: function() {
       this.beginGroup();
       BaseTheme.prototype.drawTitle.call(this);
-      return this.finishGroup().addClass('title');
+      return this.finishGroup('title', this.title_ ? this.title_.lineno : undefined);
     },
 
     drawActor: function(actor, offsetY, height) {
       this.beginGroup();
       BaseTheme.prototype.drawActor.call(this, actor, offsetY, height);
-      return this.finishGroup().addClass('actor');
+      return this.finishGroup('actor', actor.lineno);
     },
 
     drawSignal: function(signal, offsetY) {
       this.beginGroup();
       BaseTheme.prototype.drawSignal.call(this, signal, offsetY);
-      return this.finishGroup().addClass('signal');
+      return this.finishGroup('signal', signal.lineno);
     },
 
     drawSelfSignal: function(signal, offsetY) {
       this.beginGroup();
       BaseTheme.prototype.drawSelfSignal.call(this, signal, offsetY);
-      return this.finishGroup().addClass('signal');
+      return this.finishGroup('signal', signal.lineno);
     },
 
     drawNote: function(note, offsetY) {
       this.beginGroup();
       BaseTheme.prototype.drawNote.call(this, note, offsetY);
-      return this.finishGroup().addClass('note');
+      return this.finishGroup('note', note.lineno);
     },
   });
 
@@ -266,13 +290,16 @@ if (typeof Snap != 'undefined') {
 
   // Take the standard SnapTheme and make all the lines wobbly
   _.extend(SnapHandTheme.prototype, SnapTheme.prototype, {
-    drawLine: function(x1, y1, x2, y2, linetype, arrowhead) {
+    drawLine: function(x1, y1, x2, y2, linetype, arrowhead, leftarrowhead) {
       var line = this.paper_.path(handLine(x1, y1, x2, y2)).attr(LINE);
       if (linetype !== undefined) {
         line.attr('strokeDasharray', this.lineTypes_[linetype]);
       }
       if (arrowhead !== undefined) {
         line.attr('markerEnd', this.arrowMarkers_[arrowhead]);
+      }
+      if (leftarrowhead !== undefined && leftarrowhead != Diagram.LEFTARROWTYPE.NONE) {
+        line.attr('markerStart', this.leftArrowMarkers_[leftarrowhead]);
       }
       return this.pushToStack(line);
     },

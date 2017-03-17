@@ -22,13 +22,17 @@
 "over"            return 'over';
 "note"            return 'note';
 "title"           return 'title';
+"destroy"         return 'destroy';
 ","               return ',';
-[^\->:,\r\n"]+    return 'ACTOR';
+[^\-<>:,\r\n"+]+   return 'ACTOR';
 \"[^"]+\"         return 'ACTOR';
 "--"              return 'DOTLINE';
 "-"               return 'LINE';
+"+"               return 'PLUS';
 ">>"              return 'OPENARROW';
 ">"               return 'ARROW';
+"<<"              return 'LOPENARROW';
+"<"               return 'LARROW';
 :[^\r\n]+         return 'MESSAGE';
 <<EOF>>           return 'EOF';
 .                 return 'INVALID';
@@ -57,12 +61,13 @@ statement
 	: 'participant' actor_alias { $2; }
 	| signal               { yy.parser.yy.addSignal($1); }
 	| note_statement       { yy.parser.yy.addSignal($1); }
-	| 'title' message      { yy.parser.yy.setTitle($2);  }
+	| 'title' message      { yy.parser.yy.setTitle($2, yylineno);  }
+	| 'destroy' actor      { yy.parser.yy.destoryActor($2, yylineno);  }
 	;
 
 note_statement
-	: 'note' placement actor message   { $$ = new Diagram.Note($3, $2, $4); }
-	| 'note' 'over' actor_pair message { $$ = new Diagram.Note($3, Diagram.PLACEMENT.OVER, $4); }
+	: 'note' placement actor message   { $$ = new Diagram.Note($3, $2, $4, yylineno); }
+	| 'note' 'over' actor_pair message { $$ = new Diagram.Note($3, Diagram.PLACEMENT.OVER, $4, yylineno); }
 	;
 
 actor_pair
@@ -76,8 +81,14 @@ placement
 	;
 
 signal
-	: actor signaltype actor message
-	{ $$ = new Diagram.Signal($1, $2, $3, $4); }
+	: execution_modifier actor signaltype execution_modifier actor message
+		{ $$ = new Diagram.Signal($2, $3, $5, $6, $1, $4, yylineno); }
+	;
+
+execution_modifier
+	: /* empty */ { $$ = Diagram.EXECUTION_CHANGE.NONE }
+	| LINE { $$ = Diagram.EXECUTION_CHANGE.DECREASE }
+	| PLUS { $$ = Diagram.EXECUTION_CHANGE.INCREASE }
 	;
 
 actor
@@ -85,12 +96,18 @@ actor
 	;
 
 actor_alias
-	: ACTOR { $$ = yy.parser.yy.getActorWithAlias(Diagram.unescape($1)); }
+	: ACTOR { $$ = yy.parser.yy.getActorWithAlias(Diagram.unescape($1), yylineno); }
 	;
 
 signaltype
-	: linetype arrowtype  { $$ = $1 | ($2 << 2); }
-	| linetype            { $$ = $1; }
+	: leftarrowtype linetype arrowtype { $$ = $2 | ($3 << 2) | ($1 << 4); }
+	| linetype arrowtype               { $$ = $1 | ($2 << 2); }
+	| linetype                         { $$ = $1; }
+	;
+
+leftarrowtype
+	: LARROW     { $$ = Diagram.LEFTARROWTYPE.FILLED; }
+	| LOPENARROW { $$ = Diagram.LEFTARROWTYPE.OPEN; }
 	;
 
 linetype

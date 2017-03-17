@@ -34,9 +34,13 @@ var TITLE_PADDING  = 5;
 
 var SELF_SIGNAL_WIDTH = 20; // How far out a self signal goes
 
+var EXECUTION_WIDTH = 10;
+var OVERLAPPING_EXECUTION_OFFSET = EXECUTION_WIDTH * 0.5;
+
 var PLACEMENT = Diagram.PLACEMENT;
 var LINETYPE  = Diagram.LINETYPE;
 var ARROWTYPE = Diagram.ARROWTYPE;
+var LEFTARROWTYPE = Diagram.LEFTARROWTYPE;
 
 var ALIGN_LEFT   = 0;
 var ALIGN_CENTER = 1;
@@ -61,6 +65,25 @@ if (!String.prototype.trim) {
 Diagram.themes = {};
 function registerTheme(name, theme) {
   Diagram.themes[name] = theme;
+}
+
+/******************
+ * Drawing-related extra diagram methods.
+ ******************/
+
+// These functions return the x-offset from the lifeline centre given the current Execution nesting-level.
+function executionMarginLeft(level) {
+  if (level < 0) {
+    return 0;
+  }
+  return -EXECUTION_WIDTH * 0.5 + level * OVERLAPPING_EXECUTION_OFFSET;
+}
+
+function executionMarginRight(level) {
+  if (level < 0) {
+    return 0;
+  }
+  return EXECUTION_WIDTH * 0.5 + level * OVERLAPPING_EXECUTION_OFFSET;
 }
 
 /******************
@@ -169,6 +192,7 @@ _.extend(BaseTheme.prototype, {
 
     this.drawTitle();
     this.drawActors(y);
+    this.drawExecutions(y + this.actorsHeight_);
     this.drawSignals(y + this.actorsHeight_);
   },
 
@@ -185,9 +209,10 @@ _.extend(BaseTheme.prototype, {
     // Setup some layout stuff
     if (diagram.title) {
       var title = this.title_ = {};
-      var bb = this.textBBox(diagram.title, font);
+      title.message = diagram.title.message;
+      title.lineno = diagram.title.lineno;
+      var bb = this.textBBox(title.message, font);
       title.textBB = bb;
-      title.message = diagram.title;
 
       title.width  = bb.width  + (TITLE_PADDING + TITLE_MARGIN) * 2;
       title.height = bb.height + (TITLE_PADDING + TITLE_MARGIN) * 2;
@@ -208,6 +233,11 @@ _.extend(BaseTheme.prototype, {
 
       a.distances = [];
       a.paddingRight = 0;
+      if (a.maxExecutionsLevel >= 0) {
+        a.padding_right = (EXECUTION_WIDTH / 2.0) +
+          (a.maxExecutionsLevel *
+           OVERLAPPING_EXECUTION_OFFSET);
+      }
       this.actorsHeight_ = Math.max(a.height, this.actorsHeight_);
     }, this));
 
@@ -286,6 +316,11 @@ _.extend(BaseTheme.prototype, {
 
           return; // Bail out early
         }
+      } else if (s.type == 'Actor') {
+        s.width  = bb.width  + (ACTOR_PADDING + ACTOR_MARGIN) * 2;
+        s.height = bb.height + (ACTOR_PADDING + ACTOR_MARGIN) * 2;
+        a = s.index;
+        b = a + 1;
       } else {
         throw new Error('Unhandled signal type:' + s.type);
       }
@@ -338,17 +373,35 @@ _.extend(BaseTheme.prototype, {
   drawActors: function(offsetY) {
     var y = offsetY;
     _.each(this.diagram.actors, _.bind(function(a) {
+      var startY = y;
+      var endY = y;
+      if (a.start > 0) {
+        for (var i = 0, n = a.start; i < n; i++) {
+          startY += this.diagram.signals[i].height - 0;
+        }
+        startY += this.actorsHeight_;
+      }
+
       // Top box
-      this.drawActor(a, y, this.actorsHeight_);
+      this.drawActor(a, startY, this.actorsHeight_);
 
       // Bottom box
-      this.drawActor(a, y + this.actorsHeight_ + this.signalsHeight_, this.actorsHeight_);
+      if (a.end == 0) {
+        this.drawActor(a, endY + this.actorsHeight_ + this.signalsHeight_, this.actorsHeight_);
+        endY += this.signalsHeight_;
+      } else {
+        for (i = 0, n = a.end; i < n; i++) {
+          endY += this.diagram.signals[i].height - 0;
+        }
+        endY -= (SIGNAL_MARGIN + SIGNAL_PADDING) * 2;
+        a.y = endY + this.actorsHeight_ + ACTOR_MARGIN;
+      }
 
       // Veritical line
       var aX = getCenterX(a);
       this.drawLine(
-       aX, y + this.actorsHeight_ - ACTOR_MARGIN,
-       aX, y + this.actorsHeight_ + ACTOR_MARGIN + this.signalsHeight_);
+       aX, startY + this.actorsHeight_ - ACTOR_MARGIN,
+       aX, endY + this.actorsHeight_ + ACTOR_MARGIN);
     }, this));
   },
 
@@ -356,6 +409,50 @@ _.extend(BaseTheme.prototype, {
     actor.y      = offsetY;
     actor.height = height;
     this.drawTextBox(actor, actor.name, ACTOR_MARGIN, ACTOR_PADDING, this.font_, ALIGN_CENTER);
+  },
+
+  drawExecutions : function (offsetY) {
+    var y = offsetY;
+
+    // Calculate the y-positions of each signal before we attempt to draw the executions.
+    _.each(this.diagram.signals, _.bind(function(s) {
+      if (s.type == "Signal") {
+        if (s.isSelf()) {
+          s.startY = y + SIGNAL_MARGIN;
+          s.endY = s.startY + s.height - SIGNAL_MARGIN;
+        } else {
+          s.startY = s.endY = y + s.height - SIGNAL_MARGIN - SIGNAL_PADDING;
+        }
+      }
+
+      y += s.height;
+    }, this));
+
+    _.each(this.diagram.actors, _.bind(function(a) {
+      this.drawActorsExecutions(a);
+    }, this));
+  },
+
+  drawActorsExecutions : function (actor) {
+    _.each(actor.executions, _.bind(function (e) {
+      var aX = getCenterX(actor);
+      aX += e.level * OVERLAPPING_EXECUTION_OFFSET;
+      var x = aX - EXECUTION_WIDTH / 2.0;
+      var y;
+      var w = EXECUTION_WIDTH;
+      var h;
+      if (e.startSignal === e.endSignal) {
+        y = e.startSignal.startY;
+        h = e.endSignal ? e.endSignal.endY - y : (actor.y - y);
+      } else {
+        y = e.startSignal.endY;
+        h = e.endSignal ? e.endSignal.startY - y : (actor.y - y);
+      }
+
+      // Draw actual execution.
+      var rect = this.drawRect(x, y, w, h);
+      rect.attr(EXECUTION_RECT);
+    }, this));
   },
 
   drawSignals: function(offsetY) {
@@ -382,24 +479,35 @@ _.extend(BaseTheme.prototype, {
 
       var textBB = signal.textBB;
       var aX = getCenterX(signal.actorA);
+      aX += executionMarginRight(signal.maxExecutionLevel());
 
       var x = aX + SELF_SIGNAL_WIDTH + SIGNAL_PADDING;
       var y = offsetY + SIGNAL_PADDING + signal.height / 2 + textBB.y;
 
       this.drawText(x, y, signal.message, this.font_, ALIGN_LEFT);
 
+      var x1 = getCenterX(signal.actorA) + executionMarginRight(signal.startLevel);
+      var x2 = getCenterX(signal.actorA) + executionMarginRight(signal.endLevel);
       var y1 = offsetY + SIGNAL_MARGIN + SIGNAL_PADDING;
       var y2 = y1 + signal.height - 2 * SIGNAL_MARGIN - SIGNAL_PADDING;
 
       // Draw three lines, the last one with a arrow
-      this.drawLine(aX, y1, aX + SELF_SIGNAL_WIDTH, y1, signal.linetype);
+      this.drawLine(x1, y1, aX + SELF_SIGNAL_WIDTH, y1, signal.linetype);
       this.drawLine(aX + SELF_SIGNAL_WIDTH, y1, aX + SELF_SIGNAL_WIDTH, y2, signal.linetype);
-      this.drawLine(aX + SELF_SIGNAL_WIDTH, y2, aX, y2, signal.linetype, signal.arrowtype);
+      this.drawLine(aX + SELF_SIGNAL_WIDTH, y2, x2, y2, signal.linetype, signal.arrowtype);
     },
 
   drawSignal: function(signal, offsetY) {
     var aX = getCenterX(signal.actorA);
     var bX = getCenterX(signal.actorB);
+
+    if (bX > aX) {
+      aX += executionMarginRight(signal.startLevel);
+      bX += executionMarginLeft(signal.endLevel);
+    } else {
+      aX += executionMarginLeft(signal.startLevel);
+      bX += executionMarginRight(signal.endLevel);
+    }
 
     // Mid point between actors
     var x = (bX - aX) / 2 + aX;
@@ -410,7 +518,7 @@ _.extend(BaseTheme.prototype, {
 
     // Draw the line along the bottom of the signal
     y = offsetY + signal.height - SIGNAL_MARGIN - SIGNAL_PADDING;
-    this.drawLine(aX, y, bX, y, signal.linetype, signal.arrowtype);
+    this.drawLine(aX, y, bX, y, signal.linetype, signal.arrowtype, signal.leftarrowtype);
   },
 
   drawNote: function(note, offsetY) {
